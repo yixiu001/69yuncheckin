@@ -72,52 +72,39 @@ def read_config(file_path):
     except json.JSONDecodeError:
         raise ValueError("配置文件格式错误，请检查 config.json 文件是否有效。")
 
-# 发送消息到 Telegram Bot 的函数，支持按钮
-def send_message(msg="", BotToken="", ChatID=""):
+# 发送消息到 钉钉 机器人的函数，支持卡片消息
+def send_message(msg="", webhook_url=""):
     # 获取当前 UTC 时间，并转换为北京时间（+8小时）
     now = datetime.utcnow()
     beijing_time = now + timedelta(hours=8)
     formatted_time = beijing_time.strftime("%Y-%m-%d %H:%M:%S")
 
-    # 打印调试信息
-    # print(msg)
-
-    # 如果 Telegram Bot Token 和 Chat ID 都配置了，则发送消息
-    if BotToken != '' and ChatID != '':
+    # 如果 webhook_url 已配置，则发送消息
+    if webhook_url != '':
         # 构建消息内容
         message_text = f"执行时间: {formatted_time}\n{msg}"
 
-        # 构造按钮的键盘布局
-        keyboard = {
-            "inline_keyboard": [
-                [
-                    {
-                        "text": "一休交流群",
-                        "url": "https://t.me/yxjsjl"
-                    }
-                ]
-            ]
-        }
-
-        # 发送消息时附带内联按钮
-        url = f"https://api.telegram.org/bot{BotToken}/sendMessage"
+        # 构造 payload
         payload = {
-            "chat_id": ChatID,
-            "text": message_text,
-            "parse_mode": "HTML",
-            "reply_markup": json.dumps(keyboard)
+            "msgtype": "markdown",
+            "markdown": {
+                "title": "签到结果",
+                "text": message_text
+            }
         }
 
         try:
             # 发送 POST 请求
-            response = requests.post(url, data=payload)
+            response = requests.post(webhook_url, json=payload)
+            response.raise_for_status()  # 如果请求返回错误，将引发异常
             return response
         except Exception as e:
-            print(f"发送电报消息时发生错误: {str(e)}")
+            print(f"发送钉钉消息时发生错误: {str(e)}")
             return None
 
+
 # 登录并签到的主要函数
-def checkin(account, domain, BotToken, ChatID):
+def checkin(account, domain, webhook_url):
     user = account['user']
     pass_ = account['pass']
 
@@ -159,7 +146,6 @@ def checkin(account, domain, BotToken, ChatID):
 
         # 解析登录响应的 JSON 数据
         login_json = login_response.json()
-        # print(f'{user}账号登录后返回的用户信息:', login_json)
 
         # 检查登录是否成功
         if login_json.get("ret") != 1:
@@ -169,8 +155,6 @@ def checkin(account, domain, BotToken, ChatID):
         cookies = login_response.cookies
         if not cookies:
             raise ValueError('登录成功但未收到Cookie')
-
-        # print('Received cookies:', cookies)
 
         # 等待确保登录状态生效
         time.sleep(1)
@@ -196,18 +180,14 @@ def checkin(account, domain, BotToken, ChatID):
 
         # 获取签到请求的响应内容
         response_text = checkin_response.text
-        # print(f'{user}账号签到响应内容:', response_text)
-
 
         try:
             # 尝试解析签到的 JSON 响应
             checkin_result = checkin_response.json()
-            # print(f'{user}账号签到后的json信息:', checkin_result)
             账号信息 = f"地址: {domain}\n账号: {user}\n密码: <tg-spoiler>{pass_}</tg-spoiler>\n"
 
-            用户信息 = fetch_and_extract_info(domain,checkin_headers)
+            用户信息 = fetch_and_extract_info(domain, checkin_headers)
 
-            # 账号信息的展示，注意密码用 <tg-spoiler> 标签隐藏
             # 根据返回的结果更新签到信息
             if checkin_result.get('ret') == 1 or checkin_result.get('ret') == 0:
                 签到结果 = f"🎉 签到结果 🎉\n {checkin_result.get('msg', '签到成功' if checkin_result['ret'] == 1 else '签到失败')}"
@@ -219,32 +199,28 @@ def checkin(account, domain, BotToken, ChatID):
                 raise ValueError('登录状态无效，请检查Cookie处理')
             raise ValueError(f"解析签到响应失败: {str(e)}\n\n原始响应: {response_text}")
 
-        # 发送签到结果到 Telegram
-        send_message(账号信息 + 用户信息 + 签到结果, BotToken, ChatID)
+        # 发送签到结果到 钉钉
+        send_message(账号信息 + 用户信息 + 签到结果, webhook_url)
         return 签到结果
 
     except Exception as error:
-        # 捕获异常，打印错误并发送错误信息到 Telegram
+        # 捕获异常，打印错误并发送错误信息到 钉钉
         print(f'{user}账号签到异常:', error)
         签到结果 = f"签到过程发生错误: {error}"
-        send_message(签到结果, BotToken, ChatID)
+        send_message(签到结果, webhook_url)
         return 签到结果
 
 # 主程序执行逻辑
 if __name__ == "__main__":
-    # 检查环境变量 config 是否存在，如果存在则更新 config.json
-    # write_config_from_env()
-
     # 读取配置
     config = read_config(config_file_path)
 
     # 读取全局配置
     domain = config['domain']
-    BotToken = config['BotToken']
-    ChatID = config['ChatID']
+    webhook_url = config['DingTalkWebhook']  # 假设您在 config.json 中有这个字段
 
     # 循环执行每个账号的签到任务
     for account in config.get("accounts", []):
         print("----------------------------------签到信息----------------------------------")
-        print(checkin(account, domain, BotToken, ChatID))
+        print(checkin(account, domain, webhook_url))
         print("---------------------------------------------------------------------------")
