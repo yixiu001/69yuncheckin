@@ -37,11 +37,8 @@
 +        uses: actions/setup-python@v4
          with:
            python-version: '3.9'
+```
 
-
-# 更新内容
-系统提示 Warning: Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v2, actions/setup-python@v2.
-我把 actions/checkout@v2 → actions/checkout@v4，actions/setup-python@v2 → actions/setup-python@v4
 
 # 项目配置教程
 
