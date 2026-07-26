@@ -1,3 +1,48 @@
+## 2026-07-26 — CI: 升级 GitHub Actions 以移除 Node.js 20 警告
+
+变更摘要
+- 升级工作流中使用的 action：
+  - `actions/checkout@v2` → `actions/checkout@v4`
+  - `actions/setup-python@v2` → `actions/setup-python@v4`
+- 目标文件：`.github/workflows/69yuncheckin.yaml`
+- 提交信息（建议）：`chore: upgrade actions/checkout and actions/setup-python to @v4 to avoid Node.js 20 deprecation warnings`
+
+为什么要做这次更新
+- GitHub 的部分官方 Action 在内部使用的 Node.js 版本已更新或弃用旧版本（如 Node.js 20）。将 action 升级到当前 major 版本可以消除关于被弃用 Node.js 运行时的警告并获得兼容性、性能与安全修复。
+
+影响与风险
+- 影响范围：仅 CI 配置文件，运行脚本 `69yun.py` 的流程不变。
+- 风险等级：低。多数官方 action 在 major 升级中兼容旧用法，但个别 edge-case 配置或行为差异可能出现。建议合并后观察一次手动触发的运行日志。
+
+验证步骤
+1. 在 GitHub 上通过 workflow_dispatch 手动触发 `.github/workflows/69yuncheckin.yaml`。
+2. 检查 Actions 日志：
+   - 确认 workflow 能成功 checkout、安装 Python、并执行 `python 69yun.py`。
+   - 确认不再出现关于“Node.js 20 已弃用”的警告。
+3. 如有问题，查看对应 action 的 release notes（Marketplace / GitHub 仓库）寻找迁移建议或已知问题。
+
+如何回滚
+- 如果发现不兼容问题，可将 `.github/workflows/69yuncheckin.yaml` 中的 action 引用改回原来的版本（@v2），并提交回滚 commit 或在 PR 中 revert。
+
+相关改动示例（摘录）
+```diff
+-      - name: Checkout code
+-        uses: actions/checkout@v2
++      - name: Checkout code
++        uses: actions/checkout@v4
+
+-      - name: Set up Python
+-        uses: actions/setup-python@v2
++      - name: Set up Python
++        uses: actions/setup-python@v4
+         with:
+           python-version: '3.9'
+
+
+# 更新内容
+系统提示 Warning: Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v2, actions/setup-python@v2.
+我把 actions/checkout@v2 → actions/checkout@v4，actions/setup-python@v2 → actions/setup-python@v4
+
 # 项目配置教程
 
 ## 1. 点击 Star 和 Fork 这个项目
