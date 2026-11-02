@@ -4,7 +4,7 @@ import requests
 import time
 from bs4 import BeautifulSoup
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # 配置文件路径
 config_file_path = "config.json"
@@ -103,7 +103,8 @@ def generate_config():
 # 发送消息到 Telegram Bot 的函数，支持按钮
 def send_message(msg="", BotToken="", ChatID=""):
     # 获取当前 UTC 时间，并转换为北京时间（+8小时）
-    now = datetime.utcnow()
+    # 用 timezone-aware 的 now() 取代已废弃的 utcnow()（Python 3.12 起告警，未来版本会移除）
+    now = datetime.now(timezone.utc)
     beijing_time = now + timedelta(hours=8)
     formatted_time = beijing_time.strftime("%Y-%m-%d %H:%M:%S")
 
