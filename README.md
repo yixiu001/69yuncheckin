@@ -1,3 +1,35 @@
+## 2026-11-21 — CI: 升级 Python 以兼容最新 Ubuntu 运行器
+
+变更摘要
+- 将工作流中的 Python 从 `3.9` 升级到 `3.13`
+- 将 `actions/setup-python` 从 `@v4` 升级到 `@v5`
+- 目标文件：`.github/workflows/69yuncheckin.yaml`
+
+为什么要做这次更新
+- 最新的 `ubuntu-latest` 上游版本不再提供所需的 Python 3.9 x64 环境，导致 `setup-python` 在执行时找不到 3.9 版本并中止工作流。
+- 升级 setup-python 和使用可用的 Python 版本，可以恢复签到工作流的执行。
+
+影响与风险
+- 影响范围：仅 CI 配置文件，运行脚本 `69yun.py` 的流程不变。
+- 风险等级：低。程序未使用已明确废弃或仅限 Python 3.9 的特性；合并后建议手动触发一次工作流。
+
+验证步骤
+1. 在 GitHub 上通过 `workflow_dispatch` 手动触发 `.github/workflows/69yuncheckin.yaml`。
+2. 检查 Actions 日志：
+   - 确认已成功安装 Python 3.13。
+   - 确认已成功安装 `requirements.txt` 中的依赖。
+   - 确认能够执行 `python 69yun.py`。
+3. 如出现依赖兼容问题，请查看失败日志并修正对应包的版本。
+
+如何回滚
+- 如需回滚，可将工作流中的：
+  - `actions/setup-python@v5` 改回 `actions/setup-python@v4`
+  - `python-version: '3.13'` 改回 `python-version: '3.9'`
+- 建议同时在工作流中固定较旧的 Ubuntu 版本，仅在无法升级 Python 时使用：
+
+```yaml
+runs-on: ubuntu-24.04
+
 ## 2026-07-26 — CI: 升级 GitHub Actions 以移除 Node.js 20 警告
 
 变更摘要
