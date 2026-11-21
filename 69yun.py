@@ -275,7 +275,7 @@ def checkin(account, domain, BotToken, ChatID):
         账号信息 = (
             f"地址: {domain}\n"
             f"账号: {user}\n"
-            f"密码: <tg-spoiler>{html.escape(pass_)}</tg-spoiler>\n"
+            f"密码: {mask(pass_)}（已脱敏）\n"
         )
 
         send_message(账号信息 + 用户信息 + 签到结果, BotToken, ChatID)
@@ -283,8 +283,13 @@ def checkin(account, domain, BotToken, ChatID):
 
     except Exception as error:
         # 捕获异常，打印错误并发送错误信息到 Telegram
+        # 打印侧不输出明文密码；发送侧带上账号地址，方便多账号时定位
         print(f'{user}账号签到异常:', error)
-        签到结果 = f"签到过程发生错误: {html.escape(str(error))}"
+        签到结果 = (
+            f"地址: {domain}\n"
+            f"账号: {user}\n"
+            f"签到过程发生错误: {html.escape(str(error))}"
+        )
         send_message(签到结果, BotToken, ChatID)
         return 签到结果
 
