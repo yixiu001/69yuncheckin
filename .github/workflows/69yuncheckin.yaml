@@ -1,21 +1,31 @@
-name: Python CI 2
+name: 69云 签到
 
 on:
-  # 每天0点1分触发（UTC时间）
+  # UTC 00:01 触发 = 北京时间 08:01
+  # 注意：GitHub 的 cron 用的是 UTC，不是北京时间
   schedule:
     - cron: '1 0 * * *'
 
-  # 允许手动触发工作流
+  # 允许手动触发工作流（改完配置后用这个验证，不要靠 push 触发）
   workflow_dispatch:
 
-  # 提交代码到指定分支时触发
-  push:
-    branches:
-      - main  # 只在主分支提交时触发
+  # 已移除 push 触发：原来每次提交（哪怕只改 README）都会跑一次签到，
+  # 既容易触发站点风控，也白白消耗 Actions 额度。
+
+# 最小权限：本工作流只需要读代码
+permissions:
+  contents: read
+
+# 定时与手动触发串行，避免重复签到
+concurrency:
+  group: 69yun-checkin
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 脚本卡住时不要占满 6 小时
+    timeout-minutes: 15
     env:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}        # 这里设置可以用于多个账户
@@ -23,7 +33,7 @@ jobs:
       PASS1: ${{ secrets.PASS1 }}            # 密码1
       USER2: ${{ secrets.USER2 }}            # 用户2
       PASS2: ${{ secrets.PASS2 }}            # 密码2
-      # 可以继续扩展更多用户和密码
+      # 可以继续扩展更多用户和密码，脚本最多探测到 USER20 / PASS20
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,11 +42,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt  # 假设你的项目有 requirements.txt
+          pip install -r requirements.txt
 
       - name: Run Python script
-        run: python 69yun.py  # 执行你的 Python 脚本
+        run: python 69yun.py

@@ -1,137 +1,79 @@
-## 2026-11-21 — CI: 升级 Python 以兼容最新 Ubuntu 运行器
+# 69云 自动签到
 
-变更摘要
-- 将工作流中的 Python 从 `3.9` 升级到 `3.13`
-- 将 `actions/setup-python` 从 `@v4` 升级到 `@v5`
-- 目标文件：`.github/workflows/69yuncheckin.yaml`
+> 用 GitHub Actions 每天自动登录 [69云](https://69yun69.com) 完成签到，并把到期时间、剩余流量、订阅链接与签到结果推送到 Telegram。
 
-为什么要做这次更新
-- 最新的 `ubuntu-latest` 上游版本不再提供所需的 Python 3.9 x64 环境，导致 `setup-python` 在执行时找不到 3.9 版本并中止工作流。
-- 升级 setup-python 和使用可用的 Python 版本，可以恢复签到工作流的执行。
+## 功能
 
-影响与风险
-- 影响范围：仅 CI 配置文件，运行脚本 `69yun.py` 的流程不变。
-- 风险等级：低。程序未使用已明确废弃或仅限 Python 3.9 的特性；合并后建议手动触发一次工作流。
+- 每天定时自动签到（UTC 00:01，即北京时间 08:01）
+- 支持多账号，一个 Telegram Bot 群发所有账号的签到结果
+- 推送内容包含：到期时间、剩余流量、Clash / v2ray 订阅链接
+- 密码在消息中**脱敏显示**（只保留首尾各 1 位），不发送明文
+- 支持手动触发，方便随时验证
 
-验证步骤
-1. 在 GitHub 上通过 `workflow_dispatch` 手动触发 `.github/workflows/69yuncheckin.yaml`。
-2. 检查 Actions 日志：
-   - 确认已成功安装 Python 3.13。
-   - 确认已成功安装 `requirements.txt` 中的依赖。
-   - 确认能够执行 `python 69yun.py`。
-3. 如出现依赖兼容问题，请查看失败日志并修正对应包的版本。
+## 快速开始
 
-如何回滚
-- 如需回滚，可将工作流中的：
-  - `actions/setup-python@v5` 改回 `actions/setup-python@v4`
-  - `python-version: '3.13'` 改回 `python-version: '3.9'`
-- 建议同时在工作流中固定较旧的 Ubuntu 版本，仅在无法升级 Python 时使用：
+### 1. Star 和 Fork
 
-```yaml
-runs-on: ubuntu-24.04
-```
+点个 Star 支持一下，然后点右上角 **Fork** 把仓库复制到自己的账号下。
 
-## 2026-07-26 — CI: 升级 GitHub Actions 以移除 Node.js 20 警告
+> 视频教程：https://youtu.be/HjECaEIH4_s
 
-变更摘要
-- 升级工作流中使用的 action：
-  - `actions/checkout@v2` → `actions/checkout@v4`
-  - `actions/setup-python@v2` → `actions/setup-python@v4`
-- 目标文件：`.github/workflows/69yuncheckin.yaml`
-- 提交信息（建议）：`chore: upgrade actions/checkout and actions/setup-python to @v4 to avoid Node.js 20 deprecation warnings`
+### 2. 配置 Secrets
 
-为什么要做这次更新
-- GitHub 的部分官方 Action 在内部使用的 Node.js 版本已更新或弃用旧版本（如 Node.js 20）。将 action 升级到当前 major 版本可以消除关于被弃用 Node.js 运行时的警告并获得兼容性、性能与安全修复。
+Fork 后进入你的仓库 **Settings → Secrets and variables → Actions**，点 **New repository secret**，添加以下密钥：
 
-影响与风险
-- 影响范围：仅 CI 配置文件，运行脚本 `69yun.py` 的流程不变。
-- 风险等级：低。多数官方 action 在 major 升级中兼容旧用法，但个别 edge-case 配置或行为差异可能出现。建议合并后观察一次手动触发的运行日志。
+| Secret | 说明 |
+|---|---|
+| `BOT_TOKEN` | 你的 Telegram Bot Token（找 [@BotFather](https://t.me/BotFather) 创建） |
+| `CHAT_ID` | 接收消息的 Chat ID（可以是个人、群组或频道） |
+| `USER1` | 第 1 个账号（登录邮箱） |
+| `PASS1` | 第 1 个账号的密码 |
+| `USER2` | 第 2 个账号（登录邮箱） |
+| `PASS2` | 第 2 个账号的密码 |
 
-验证步骤
-1. 在 GitHub 上通过 workflow_dispatch 手动触发 `.github/workflows/69yuncheckin.yaml`。
-2. 检查 Actions 日志：
-   - 确认 workflow 能成功 checkout、安装 Python、并执行 `python 69yun.py`。
-   - 确认不再出现关于“Node.js 20 已弃用”的警告。
-3. 如有问题，查看对应 action 的 release notes（Marketplace / GitHub 仓库）寻找迁移建议或已知问题。
+`BOT_TOKEN` 和 `CHAT_ID` 只需配一份，所有账号共用。
 
-如何回滚
-- 如果发现不兼容问题，可将 `.github/workflows/69yuncheckin.yaml` 中的 action 引用改回原来的版本（@v2），并提交回滚 commit 或在 PR 中 revert。
+### 3. 添加更多账号
 
-相关改动示例（摘录）
-```diff
--      - name: Checkout code
--        uses: actions/checkout@v2
-+      - name: Checkout code
-+        uses: actions/checkout@v4
+脚本会自动读取 `USER1 / PASS1`、`USER2 / PASS2`……一直到 `USER20 / PASS20`。
 
--      - name: Set up Python
--        uses: actions/setup-python@v2
-+      - name: Set up Python
-+        uses: actions/setup-python@v4
-         with:
-           python-version: '3.9'
-```
-
-
-# 项目配置教程
-
-## 1. 点击 Star 和 Fork 这个项目
-
-视频教程：https://youtu.be/HjECaEIH4_s
-
-### 1.1 点击 Star
-
-点个Star支持一下，非常感谢！
-
-### 1.2 Fork 项目
-
-- **步骤**：
-    1. 打开该项目的 GitHub 页面。
-    2. 在页面右上角，点击 **Fork** 按钮。
-    3. 选择你要 Fork 到的 GitHub 账户或组织。
-
----
-
-## 2. 配置环境变量
-
-### 2.1 在 GitHub 中设置 Secrets（环境变量）
-
-为了让 CI/CD 流程使用敏感信息（如 `BOT_TOKEN`, `CHAT_ID`, `USER1`, `PASS1` 等），我们使用 GitHub 的 **Secrets** 功能存储环境变量，这样可以安全地管理配置。
-
-- **步骤**：
-    1. 打开你的 GitHub 仓库页面。
-    2. 点击页面右上角的 **Settings** 按钮。
-    3. 在左侧菜单栏找到 **Secrets and variables**，点击 **Actions**。
-    4. 点击 **New repository secret** 按钮，添加以下 Secrets：
-        - `BOT_TOKEN`：你的 Bot Token。
-        - `CHAT_ID`：你的 Chat ID。
-        - `USER1`, `USER2`, `USER3`（根据需要添加）：第一个、第二个、第三个用户的用户名（如邮件地址）。
-        - `PASS1`, `PASS2`, `PASS3`（根据需要添加）：与上述用户对应的密码。
-
-> **注意**：Secrets 一旦设置好后，GitHub Actions 会自动读取它们，无需手动在每次提交时修改代码，但是在工作流中只配置了2个账户，所以需要添加更多账户的话，请手动修改yaml文件。
-
-### 2.2 在 GitHub Actions 中引用环境变量
-
-GitHub Actions 会自动加载你设置在 **Secrets** 中的环境变量，你可以在 `.yaml` 文件中通过 `${{ secrets.<secret_name> }}` 的方式引用这些环境变量。
-
-#### 如果需要添加更多账户请手动修改.github/workflows/69yuncheckin.yaml文件的如下内容
+要新增账号时，需要在 `.github/workflows/69yuncheckin.yaml` 的 `env:` 里再补两行，例如：
 
 ```yaml
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    env:
-      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-      CHAT_ID: ${{ secrets.CHAT_ID }}        # 这里设置可以用于多个账户
-      USER1: ${{ secrets.USER1 }}            # 用户1
-      PASS1: ${{ secrets.PASS1 }}            # 密码1
-      USER2: ${{ secrets.USER2 }}            # 用户2
-      PASS2: ${{ secrets.PASS2 }}            # 密码2
-      # 可以继续扩展更多用户和密码，例如
-      USER3: ${{ secrets.USER3 }}            # 用户3
-      PASS3: ${{ secrets.PASS3 }}            # 密码3
-      USER4: ${{ secrets.USER4 }}            # 用户4
-      PASS4: ${{ secrets.PASS4 }}            # 密码4
+USER3: ${{ secrets.USER3 }}
+PASS3: ${{ secrets.PASS3 }}
 ```
 
-### 2.3 手动运行工作流，后续每天都会自动运行
+然后在仓库 Secrets 里对应添加 `USER3`、`PASS3` 即可，**无需改动 Python 脚本**。
+
+### 4. 手动运行一次验证
+
+进入 **Actions** 页面，选择 `69云 签到` 工作流，点 **Run workflow** 手动触发一次，确认能正常签到并收到 Telegram 消息。之后每天会自动运行。
+
+## 本地运行（可选）
+
+```bash
+pip install -r requirements.txt
+
+# 设置环境变量后运行
+export BOT_TOKEN="..."
+export CHAT_ID="..."
+export USER1="you@example.com"
+export PASS1="your-password"
+python 69yun.py
+```
+
+> 也可以在环境变量里加 `DOMAIN` 覆盖默认面板地址（默认 `https://69yun69.com`）。
+
+## 常见问题
+
+- **没有收到 Telegram 消息**：确认 `BOT_TOKEN` 和 `CHAT_ID` 都正确；给 Bot 发过消息后才能主动私聊你。
+- **提示未配置任何账号**：检查 `USER1 / PASS1` 是否在 Secrets 里设置，且与 yaml 中的引用名称一致。
+- **定时任务没有运行**：GitHub 对 60 天无提交的仓库会停用定时任务，偶尔手动跑一次即可激活。
+- **签到失败**：检查 Actions 日志中的具体报错，常见原因是密码错误或面板改版导致解析失败。
+
+## 注意事项
+
+- 定时触发用的是 UTC 时间（`1 0 * * *` = 北京时间 08:01），不是北京时间 0 点。
+- 密码只做脱敏展示，请勿在消息或日志里输出明文密码。
+- 本工具仅供个人学习与自动化使用，请遵守目标站点的服务条款。
