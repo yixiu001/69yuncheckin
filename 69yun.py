@@ -11,6 +11,10 @@ from datetime import datetime, timedelta, timezone
 # 单次请求超时（秒）。不设超时的话，CI 遇到网络卡死会一直挂到 job 上限。
 TIMEOUT = 25
 
+# 网络抖动重试：只对连接类异常重试，避免把「登录失败」这种业务错误重复提交。
+RETRIES = 2
+RETRY_BACKOFF = 1  # 秒，线性退避
+
 # 支持的最大账号数，用于探测 USER1..USERn
 MAX_ACCOUNTS = 20
 
@@ -30,6 +34,25 @@ def make_session():
     return session
 
 
+def request_with_retry(session, method, url, **kwargs):
+    """带有限重试的请求封装。
+
+    只对连接/超时类异常重试（网络抖动），不重试 HTTP 业务错误：
+    登录失败、签到失败是服务端明确返回的，重试没有意义还可能触发风控。
+    """
+    kwargs.setdefault('timeout', TIMEOUT)
+    last_exc = None
+    for attempt in range(RETRIES + 1):
+        try:
+            return session.request(method, url, **kwargs)
+        except (requests.ConnectionError, requests.Timeout) as e:
+            last_exc = e
+            if attempt < RETRIES:
+                print(f"  网络异常，{RETRY_BACKOFF}s 后重试（{attempt + 1}/{RETRIES}）: {e}")
+                time.sleep(RETRY_BACKOFF)
+    raise last_exc
+
+
 def mask(value, head=1, tail=1):
     """脱敏，只保留首尾少量字符。"""
     if not value:
@@ -47,7 +70,7 @@ def fetch_and_extract_info(session, domain):
     返回 None 会直接 TypeError，把已经成功的签到结果一并丢掉。
     """
     try:
-        response = session.get(f"{domain}/user", timeout=TIMEOUT)
+        response = request_with_retry(session, 'GET', f"{domain}/user")
     except requests.RequestException as e:
         print(f"用户信息获取失败（网络异常）: {e}")
         return ""
@@ -173,14 +196,15 @@ def send_message(msg="", BotToken="", ChatID=""):
     url = f"https://api.telegram.org/bot{BotToken}/sendMessage"
     payload = {
         "chat_id": ChatID,
-        # Telegram 单条上限 4096 字符，超出会 400
+        # Telegram 单条上限 4096 字符，兜底截断防止 400
         "text": message_text[:4096],
         "parse_mode": "HTML",
         "reply_markup": json.dumps(keyboard)
     }
 
     try:
-        response = requests.post(url, data=payload, timeout=TIMEOUT)
+        session = make_session()
+        response = request_with_retry(session, 'POST', url, data=payload)
         # 原来不检查返回值，token 失效或 HTML 解析失败时会静默丢消息
         if response.status_code != 200:
             print(f"Telegram 发送失败 HTTP {response.status_code}: {response.text[:200]}")
@@ -217,15 +241,19 @@ def checkin(account, domain, BotToken, ChatID):
             'Referer': f"{domain}/auth/login",
         }
 
-        login_response = session.post(
-            login_url, json=login_data, headers=login_headers, timeout=TIMEOUT
+        login_response = request_with_retry(
+            session, 'POST', login_url, json=login_data, headers=login_headers
         )
         print(f'{user}账号登录状态:', login_response.status_code)
 
         if login_response.status_code != 200:
             raise ValueError(f"登录请求失败: {login_response.text[:200]}")
 
-        login_json = login_response.json()
+        try:
+            login_json = login_response.json()
+        except ValueError:
+            # 站点维护或被风控时可能返回登录页 HTML，直接 json() 会抛出难懂的异常
+            raise ValueError(f"登录响应不是 JSON（可能被风控/站点维护）: {login_response.text[:200]}")
         if login_json.get("ret") != 1:
             raise ValueError(f"登录失败: {login_json.get('msg', '未知错误')}")
 
@@ -246,8 +274,8 @@ def checkin(account, domain, BotToken, ChatID):
             'X-Requested-With': 'XMLHttpRequest'
         }
 
-        checkin_response = session.post(
-            checkin_url, headers=checkin_headers, timeout=TIMEOUT
+        checkin_response = request_with_retry(
+            session, 'POST', checkin_url, headers=checkin_headers
         )
         print(f'{user}账号签到状态:', checkin_response.status_code)
 
@@ -266,17 +294,20 @@ def checkin(account, domain, BotToken, ChatID):
         # 原来写成 get('msg', ... if checkin_result['ret'] ...) 在缺 ret 键时会 KeyError
         ret = checkin_result.get('ret')
         msg = checkin_result.get('msg') or ('签到成功' if ret == 1 else '签到结果未知')
-        # 服务端文案可能含 < > &，不转义会让 Telegram 报 400 解析失败
-        签到结果 = f"🎉 签到结果 🎉\n {html.escape(str(msg))}"
+
+        # parse_mode=HTML 下，所有进入消息的动态内容都必须转义：
+        # 服务端文案、账号、域名、订阅信息里的 < > & 都会让 Telegram 报 400。
+        账号信息 = (
+            f"地址: {html.escape(str(domain))}\n"
+            f"账号: {html.escape(str(user))}\n"
+            f"密码: {html.escape(mask(pass_))}（已脱敏）\n"
+        )
 
         # 用户信息抓取失败时返回空串，不影响签到结果回传
         用户信息 = fetch_and_extract_info(session, domain)
+        用户信息 = html.escape(用户信息)
 
-        账号信息 = (
-            f"地址: {domain}\n"
-            f"账号: {user}\n"
-            f"密码: {mask(pass_)}（已脱敏）\n"
-        )
+        签到结果 = f"🎉 签到结果 🎉\n {html.escape(str(msg))}"
 
         send_message(账号信息 + 用户信息 + 签到结果, BotToken, ChatID)
         return 签到结果
@@ -286,8 +317,8 @@ def checkin(account, domain, BotToken, ChatID):
         # 打印侧不输出明文密码；发送侧带上账号地址，方便多账号时定位
         print(f'{user}账号签到异常:', error)
         签到结果 = (
-            f"地址: {domain}\n"
-            f"账号: {user}\n"
+            f"地址: {html.escape(str(domain))}\n"
+            f"账号: {html.escape(str(user))}\n"
             f"签到过程发生错误: {html.escape(str(error))}"
         )
         send_message(签到结果, BotToken, ChatID)
