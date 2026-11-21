@@ -35,11 +35,12 @@ jobs:
       PASS2: ${{ secrets.PASS2 }}            # 密码2
       # 可以继续扩展更多用户和密码，脚本最多探测到 USER20 / PASS20
     steps:
+      # 使用 targeting Node.js 24 的版本（v4/v5 仍是 node20，会触发弃用警告）
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
           cache: 'pip'

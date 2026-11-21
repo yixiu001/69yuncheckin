@@ -80,6 +80,11 @@ python 69yun.py
 
 ## 更新记录
 
+### 2026-11-22 — 消除 Node.js 20 弃用警告
+
+- `actions/checkout` `@v4` → `@v5`、`actions/setup-python` `@v5` → `@v6`
+- 两者都已 target Node.js 24，消除「Node.js 20 is deprecated」警告；输入项兼容，`cache: 'pip'` 不受影响
+
 ### 2026-11-21 — 第二轮打磨：重试、消息转义与测试覆盖
 
 - **网络重试**：登录/签到/用户信息/Telegram 请求增加有限重试（连接与超时类异常重试 2 次，业务错误不重试），降低 CI 偶发抖动导致的误报
