@@ -29,6 +29,7 @@
 
 ```yaml
 runs-on: ubuntu-24.04
+```
 
 ## 2026-07-26 — CI: 升级 GitHub Actions 以移除 Node.js 20 警告
 
