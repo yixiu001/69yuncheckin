@@ -77,3 +77,32 @@ python 69yun.py
 - 定时触发用的是 UTC 时间（`1 0 * * *` = 北京时间 08:01），不是北京时间 0 点。
 - 密码只做脱敏展示，请勿在消息或日志里输出明文密码。
 - 本工具仅供个人学习与自动化使用，请遵守目标站点的服务条款。
+
+## 更新记录
+
+### 2026-11-21 — 修复签到静默失效、KeyError 与密码明文泄露
+
+- **修复三个会导致「看着在跑、实际白跑」的 bug**：
+  - 未配置任何账号时不再伪装成功，改为报错并以非 0 退出码结束
+  - `fetch_and_extract_info` 失败时返回空字符串而非 `None`，避免拼接崩溃
+  - 先取 `ret` 再取值，修复 `dict.get` 默认参数立即求值导致的 `KeyError`
+- **健壮性**：所有请求补上 timeout；改用 `requests.Session` 管理 Cookie；Telegram 发送后检查响应状态；动态文案做 HTML 转义；移除已废弃的 `datetime.utcnow()`
+- **安全**：密码在消息中脱敏显示，配置加载日志不再打印明文密码
+- **配置与依赖**：`.gitignore` 不再误忽略 workflow 与主脚本；workflow 移除 push 触发、补充权限/并发/超时与 pip 缓存；依赖由空壳包 `bs4` 改为 `beautifulsoup4` 并锁定版本
+- **文档**：重写 README，补充功能说明、配置教程、多账号扩展与排障指引
+
+### 2026-11-21 — CI: 升级 Python 以兼容最新 Ubuntu 运行器
+
+- 将工作流中的 Python 从 `3.9` 升级到 `3.13`
+- 将 `actions/setup-python` 从 `@v4` 升级到 `@v5`
+- 原因：最新 `ubuntu-latest` 不再提供 Python 3.9 x64 环境，导致工作流找不到 3.9 而中止
+
+### 2026-07-26 — 升级 GitHub Actions 以移除 Node.js 20 警告
+
+- 升级 `actions/checkout` `@v2` → `@v4`
+- 升级 `actions/setup-python` `@v2` → `@v4`
+- 消除 GitHub 官方 Action 因 Node.js 20 弃用产生的警告
+
+### 更早
+
+- 项目初始版本，实现 69云 自动签到 + Telegram 通知（历史提交见 `git log`）
