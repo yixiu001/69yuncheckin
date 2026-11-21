@@ -1,4 +1,8 @@
+# 本地配置文件（含账号密码，绝不入库）
 config.json
-.github/workflows/69yuncheckin.yaml
-generate_config.sh
-69yun.py
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.venv/
+venv/
