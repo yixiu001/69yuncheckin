@@ -1,0 +1,23 @@
+name: ♻️ Keep GitHub Actions Alive (Monthly)
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # 每月1号 UTC 00:00（北京时间早上8点）
+  workflow_dispatch:      # 支持手动触发
+  push:
+    branches:
+      - main              # 如果你的主分支是 master，请改成 master
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create empty commit to keep repo active
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore(keep-alive): $(date -u)"
+          git push
