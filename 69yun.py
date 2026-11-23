@@ -15,11 +15,20 @@ TIMEOUT = 25
 RETRIES = 2
 RETRY_BACKOFF = 1  # 秒，线性退避
 
+# 幂等方法（重复发送无副作用），读超时也可以放心重试
+IDEMPOTENT_METHODS = {'GET', 'HEAD', 'OPTIONS'}
+
 # 支持的最大账号数，用于探测 USER1..USERn
 MAX_ACCOUNTS = 20
 
-# 订阅站域名（面板页面只暴露 /link/<token>，不暴露完整订阅地址）
-SUB_HOST = "https://checkhere.top"
+# 订阅站域名：面板页面只暴露 /link/<token>，不暴露完整订阅地址，
+# 所以域名只能写一个默认值。站点换订阅域名时，用环境变量 SUB_HOST 覆盖即可，不用改代码。
+DEFAULT_SUB_HOST = "https://checkhere.top"
+
+
+def get_sub_host():
+    return (os.getenv('SUB_HOST') or DEFAULT_SUB_HOST).rstrip('/')
+
 
 USER_AGENT = (
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -37,15 +46,27 @@ def make_session():
 def request_with_retry(session, method, url, **kwargs):
     """带有限重试的请求封装。
 
-    只对连接/超时类异常重试（网络抖动），不重试 HTTP 业务错误：
+    只对网络类异常重试，不重试 HTTP 业务错误：
     登录失败、签到失败是服务端明确返回的，重试没有意义还可能触发风控。
+
+    GET 等幂等请求：连接失败、读超时都重试。
+    POST 等非幂等请求：只重试 ConnectionError（含 ConnectTimeout，它是 ConnectionError 的子类）。
+    读超时（ReadTimeout）说明请求可能已经到达服务端，再发一次会重复签到、
+    或让 Telegram 收到两条一样的消息，所以直接抛出不重试。
+    残余风险：requests 也会把「请求已发出、服务端中途断开」（RemoteDisconnected）
+    归为 ConnectionError，这种情况仍会重试，极少数情况下可能重复提交一次。
     """
     kwargs.setdefault('timeout', TIMEOUT)
+    if method.upper() in IDEMPOTENT_METHODS:
+        retry_on = (requests.ConnectionError, requests.Timeout)
+    else:
+        retry_on = (requests.ConnectionError,)
+
     last_exc = None
     for attempt in range(RETRIES + 1):
         try:
             return session.request(method, url, **kwargs)
-        except (requests.ConnectionError, requests.Timeout) as e:
+        except retry_on as e:
             last_exc = e
             if attempt < RETRIES:
                 print(f"  网络异常，{RETRY_BACKOFF}s 后重试（{attempt + 1}/{RETRIES}）: {e}")
@@ -100,12 +121,13 @@ def fetch_and_extract_info(session, domain):
         return found.group(1) if found else None
 
     # 提取到期时间和剩余流量
-    expire = pick(r"'Class_Expire': '(.*?)'")
-    traffic = pick(r"'Unused_Traffic': '(.*?)'")
+    # 面板改版导致匹配不到时显示「未知」，而不是把 None 原样发出去
+    expire = pick(r"'Class_Expire': '(.*?)'") or "未知"
+    traffic = pick(r"'Unused_Traffic': '(.*?)'") or "未知"
 
     用户信息 = f"到期时间: {expire}\n剩余流量: {traffic}\n"
 
-    # 提取 Clash 订阅链接：只取 token，不依赖写死的域名
+    # 提取 Clash 订阅链接：页面里只取 token，域名用 SUB_HOST（见文件顶部说明）
     token = None
     # 优先在 oneclickImport 那段脚本里找
     for script in script_tags:
@@ -127,9 +149,10 @@ def fetch_and_extract_info(session, domain):
                     break
 
     if token:
+        sub_host = get_sub_host()
         用户信息 += (
-            f"Clash 订阅链接: {SUB_HOST}/link/{token}?clash=1\n"
-            f"v2ray 订阅链接: {SUB_HOST}/link/{token}?sub=3\n\n"
+            f"Clash 订阅链接: {sub_host}/link/{token}?clash=1\n"
+            f"v2ray 订阅链接: {sub_host}/link/{token}?sub=3\n\n"
         )
 
     return 用户信息
@@ -169,8 +192,19 @@ def generate_config():
     return config
 
 
+def truncate_html(text, limit):
+    """截断到 limit 字符，并去掉末尾被切断的 HTML 转义（如 `&am`），否则 Telegram 会回 400。"""
+    if len(text) <= limit:
+        return text
+    return re.sub(r"&[#A-Za-z0-9]*$", "", text[:limit])
+
+
 # 发送消息到 Telegram Bot，支持按钮
 def send_message(msg="", BotToken="", ChatID=""):
+    """返回值：True 已送达；False 配置了 Telegram 但发送失败；None 未配置 Telegram。
+
+    调用方据此判断「失败有没有人知道」：发送失败时要让 CI 变红，否则静默丢消息。
+    """
     # 获取当前 UTC 时间，并转换为北京时间（+8 小时）
     beijing_time = datetime.now(timezone.utc) + timedelta(hours=8)
     formatted_time = beijing_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -197,7 +231,7 @@ def send_message(msg="", BotToken="", ChatID=""):
     payload = {
         "chat_id": ChatID,
         # Telegram 单条上限 4096 字符，兜底截断防止 400
-        "text": message_text[:4096],
+        "text": truncate_html(message_text, 4096),
         "parse_mode": "HTML",
         "reply_markup": json.dumps(keyboard)
     }
@@ -208,14 +242,20 @@ def send_message(msg="", BotToken="", ChatID=""):
         # 原来不检查返回值，token 失效或 HTML 解析失败时会静默丢消息
         if response.status_code != 200:
             print(f"Telegram 发送失败 HTTP {response.status_code}: {response.text[:200]}")
-        return response
+            return False
+        return True
     except requests.RequestException as e:
         print(f"发送电报消息时发生错误: {e}")
-        return None
+        return False
 
 
 # 登录并签到的主要函数
 def checkin(account, domain, BotToken, ChatID):
+    """返回 (ok, 结果文本)。
+
+    ok=False 的情况：登录/签到过程抛错，或 Telegram 已配置但消息没发出去。
+    服务端回「今天已签到过」属于正常结果，不算失败（手动重跑时不会误报）。
+    """
     user = account['user']
     pass_ = account['pass']
 
@@ -244,7 +284,7 @@ def checkin(account, domain, BotToken, ChatID):
         login_response = request_with_retry(
             session, 'POST', login_url, json=login_data, headers=login_headers
         )
-        print(f'{user}账号登录状态:', login_response.status_code)
+        print(f'{mask(user, 2, 4)}账号登录状态:', login_response.status_code)
 
         if login_response.status_code != 200:
             raise ValueError(f"登录请求失败: {login_response.text[:200]}")
@@ -277,7 +317,7 @@ def checkin(account, domain, BotToken, ChatID):
         checkin_response = request_with_retry(
             session, 'POST', checkin_url, headers=checkin_headers
         )
-        print(f'{user}账号签到状态:', checkin_response.status_code)
+        print(f'{mask(user, 2, 4)}账号签到状态:', checkin_response.status_code)
 
         response_text = checkin_response.text
 
@@ -293,40 +333,52 @@ def checkin(account, domain, BotToken, ChatID):
         # 先把 ret 取出来：dict.get 的默认参数是立即求值的，
         # 原来写成 get('msg', ... if checkin_result['ret'] ...) 在缺 ret 键时会 KeyError
         ret = checkin_result.get('ret')
-        msg = checkin_result.get('msg') or ('签到成功' if ret == 1 else '签到结果未知')
+        msg = checkin_result.get('msg') or ('签到成功' if str(ret) == '1' else '签到结果未知')
+
+        # 只有 HTTP 200 且 ret 为 1（成功）或 0（今天已签到）才算正常；
+        # ret=-1、缺 ret、HTTP 500 带 JSON 正文这些都是失败，要让 CI 变红。
+        # 注意：部分面板的 ret=0 也可能表示其他失败，这里无法区分，按「已签到」处理。
+        签到正常 = checkin_response.status_code == 200 and str(ret) in ('0', '1')
 
         # parse_mode=HTML 下，所有进入消息的动态内容都必须转义：
         # 服务端文案、账号、域名、订阅信息里的 < > & 都会让 Telegram 报 400。
+        # 消息里不放密码：哪怕脱敏也会泄露首尾字符，而定位账号有邮箱就够了
         账号信息 = (
             f"地址: {html.escape(str(domain))}\n"
             f"账号: {html.escape(str(user))}\n"
-            f"密码: {html.escape(mask(pass_))}（已脱敏）\n"
         )
 
         # 用户信息抓取失败时返回空串，不影响签到结果回传
         用户信息 = fetch_and_extract_info(session, domain)
         用户信息 = html.escape(用户信息)
 
-        签到结果 = f"🎉 签到结果 🎉\n {html.escape(str(msg))}"
+        if 签到正常:
+            签到结果 = f"🎉 签到结果 🎉\n {html.escape(str(msg))}"
+        else:
+            签到结果 = (
+                f"⚠️ 签到失败 ⚠️\n HTTP {checkin_response.status_code}，"
+                f"ret={html.escape(str(ret))}：{html.escape(str(msg))}"
+            )
 
-        send_message(账号信息 + 用户信息 + 签到结果, BotToken, ChatID)
-        return 签到结果
+        sent = send_message(账号信息 + 用户信息 + 签到结果, BotToken, ChatID)
+        return 签到正常 and sent is not False, 签到结果
 
     except Exception as error:
         # 捕获异常，打印错误并发送错误信息到 Telegram
-        # 打印侧不输出明文密码；发送侧带上账号地址，方便多账号时定位
-        print(f'{user}账号签到异常:', error)
-        签到结果 = (
+        # 日志侧账号脱敏；Telegram 侧带上完整账号地址，方便多账号时定位
+        print(f'{mask(user, 2, 4)}账号签到异常:', error)
+        签到结果 = f"签到过程发生错误: {html.escape(str(error))}"
+        send_message(
             f"地址: {html.escape(str(domain))}\n"
-            f"账号: {html.escape(str(user))}\n"
-            f"签到过程发生错误: {html.escape(str(error))}"
+            f"账号: {html.escape(str(user))}\n" + 签到结果,
+            BotToken, ChatID,
         )
-        send_message(签到结果, BotToken, ChatID)
-        return 签到结果
+        # 返回值会被 main 打印到日志，所以这里不带账号
+        return False, 签到结果
 
 
-# 主程序执行逻辑
-if __name__ == "__main__":
+# 主程序执行逻辑，返回进程退出码（0 全部成功，1 有失败）
+def main():
     config = generate_config()
 
     domain = config['domain']
@@ -339,9 +391,25 @@ if __name__ == "__main__":
     if not accounts:
         print("错误: 未读取到任何账号，请检查 USER1 / PASS1 等 Secrets 配置")
         send_message("签到未执行：未配置任何账号（USER1 / PASS1）", BotToken, ChatID)
-        sys.exit(1)
+        return 1
 
+    # 原来单个账号签到失败、Telegram 又没发出去时，CI 仍显示绿色，等于没人知道。
+    # 现在有任何账号失败就以非 0 退出码结束，GitHub 会发失败邮件提醒。
+    failed = []
     for account in accounts:
         print("----------------------------------签到信息----------------------------------")
-        print(checkin(account, domain, BotToken, ChatID))
+        ok, result = checkin(account, domain, BotToken, ChatID)
+        print(result)
+        if not ok:
+            failed.append(account['user'])
         print("---------------------------------------------------------------------------")
+
+    if failed:
+        print(f"错误: {len(failed)}/{len(accounts)} 个账号失败: "
+              + ", ".join(mask(u, 2, 4) for u in failed))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

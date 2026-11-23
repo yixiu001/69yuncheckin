@@ -35,7 +35,7 @@ jobs:
       PASS2: ${{ secrets.PASS2 }}            # 密码2
       # 可以继续扩展更多用户和密码，脚本最多探测到 USER20 / PASS20
     steps:
-      # 使用 targeting Node.js 24 的版本（v4/v5 仍是 node20，会触发弃用警告）
+      # 使用基于 Node.js 24 的版本（checkout@v4、setup-python@v5 仍是 node20，会触发弃用警告）
       - name: Checkout code
         uses: actions/checkout@v5
 
@@ -49,6 +49,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      # 先跑单元测试（全部 mock，不联网、不签到），不通过就不签到，避免带着 bug 去请求站点
+      - name: Run unit tests
+        run: python -m unittest -v test_69yun
 
       - name: Run Python script
         run: python 69yun.py
